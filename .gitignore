@@ -1,0 +1,18 @@
+env_mm1/
+__pycache__/
+data_txt/
+*.txt
+!vocab.txt 
+!requirements.txt
+vocabRaw.txt
+vocab copy.txt
+vocab_cleaned*.txt
+CHECKPOINTS*/
+mon_gpt_model/
+*.keras
+log/
+training_log.csv
+.venv
+.venv/
+venv/
+venv
