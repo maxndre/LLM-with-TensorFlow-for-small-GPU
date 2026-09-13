@@ -1,77 +1,77 @@
-# 🧠 MM1: Custom GPT Architecture from Scratch
+# 🧠 MM1: a GPT trained from scratch on a 2015 laptop GPU
 
-> **The final iteration of a 3-month R&D project focused on building, training, and optimizing a Generative Pre-trained Transformer (GPT) entirely from scratch using TensorFlow and Keras, specifically engineered for highly constrained hardware.**
+> **The final iteration of a 3-month R&D project: building, training and optimizing a decoder-only GPT in TensorFlow/Keras with no pretrained weights, on hardware that had no business running it.**
 
 ## 📌 Project Overview
 
-MM1 is a custom-built, decoder-only Transformer model. Instead of relying on pre-packaged high-level NLP libraries, this project implements the core mechanics of modern Large Language Models (LLMs) from the ground up. 
+MM1 is a decoder-only transformer assembled from Keras primitives — no pretrained weights, no LLM framework, no fine-tuning. The transformer blocks, the causal masking, the data pipeline and the training loop are written here; attention and layer normalization come from `tf.keras.layers`.
 
-**The primary constraint and challenge of this project was hardware limitation.** The entire architecture, training loop, and data pipeline were aggressively optimized to run on an older, low-end GPU setup:
+**The interesting part of this project is not the architecture, it is the budget.** Every design choice below is downstream of what fits in the VRAM of a ten-year-old mobile GPU:
+
 * **GPU:** NVIDIA Quadro M1000M (GM107GLM)
 * **CPU:** Intel® Core™ i7-6820HQ @ 2.70GHz × 8
 * **Environment:** CUDA 11.8 / TensorFlow 2.12
 
 ## ⚖️ Trade-offs & Engineering Choices
 
-Because of the strict VRAM limitations, several architectural trade-offs had to be made:
-* **Dataset:** The model was trained on the **French Wikipedia**.
-* **Vocabulary Arbitrage:** To prevent Out-Of-Memory (OOM) errors, the vocabulary size was heavily capped. Training on a rich, highly inflected language like French with a small vocabulary inevitably leads to a high frequency of unknown (`[UNK]`) tokens. 
-* **Context Window:** The sequence length (`maxlen`) is limited to 128 tokens to keep the attention matrices small enough to fit in VRAM.
+The VRAM ceiling forces a single budget to be split four ways — vocabulary size, embedding width, depth, and context length. Spend it in one place and you pay for it in another.
 
-To counter the `[UNK]` issue, a **dynamic filtering algorithm** was built into the data pipeline to automatically reject training sequences containing an excessive number of unreadable tokens, ensuring the model still learns high-quality semantic relationships.
+* **Context window.** `maxlen` is capped at **128 tokens**. Attention cost grows with the square of the sequence length, so the context window is the most expensive axis to buy and the first one cut.
+* **Vocabulary arbitrage.** The vocabulary is capped at **~3000 tokens** to keep the embedding and output projection small enough to fit. French is a heavily inflected language, so a small vocabulary produces a high rate of unknown (`[UNK]`) tokens — the cost of that choice, paid in data quality.
+* **Countermeasure.** A **dynamic filtering algorithm** in the data pipeline rejects training sequences containing an excessive proportion of `[UNK]`, so the model still learns from readable text rather than from noise.
+* **Dataset:** French Wikipedia.
 
 ## 🏗️ Model Architecture
 
-* **Vocabulary Size:** Configurable (~3000 tokens)
-* **Context Window (Maxlen):** 128 tokens
-* **Embedding Dimension:** 256
-* **Attention Heads:** 4
-* **Feed-Forward Dimension:** 1024
-* **Transformer Layers:** 8
+| | |
+|---|---|
+| Vocabulary size | ~3000 tokens |
+| Context window (`maxlen`) | 128 tokens |
+| Embedding dimension | 256 |
+| Attention heads | 4 |
+| Feed-forward dimension | 1024 |
+| Transformer layers | 8 |
 
-## ✨ Key Technical Features
+## ✨ What is actually implemented here
 
-* **Custom Transformer Blocks:** Fully implemented Multi-Head Attention and Feed-Forward networks with Layer Normalization and Dropout for robust learning.
-* **Strict Causal Masking:** Engineered dynamic causal masks (`tf.linalg.band_part`) to strictly prevent the model from attending to future tokens during training.
-* **Smart Dataset Filtering:** Custom data pipeline that cleans sequences and manages the high `[UNK]` token rate.
-* **Resilient Training Loop:** Built-in CSV-based logging and checkpointing. The model automatically resumes training at the exact epoch and learning rate where it left off.
-* **Modular Engineering:** Codebase cleanly separated into model architecture, data processing, training, and inference scripts for high maintainability.
+* **Transformer block wiring** (`model.py`) — residual connections around both sub-layers, post-norm placement, dropout before the add. Built on `layers.MultiHeadAttention` and `layers.LayerNormalization`; the block structure around them is written by hand.
+* **Strict causal masking** — a dynamic lower-triangular mask via `tf.linalg.band_part`, reshaped and passed into every block, so the model cannot attend to future tokens.
+* **Data pipeline** — sequence cleaning, the `[UNK]` filtering described above, shuffling and `prefetch(AUTOTUNE)`.
+* **Resilient training loop** — CSV logging and checkpointing; training resumes at the exact epoch and learning rate it stopped at, which matters when a run takes days on this hardware.
+* **Memory management** — `set_memory_growth` so TensorFlow does not pre-allocate the whole card.
+* **Inference** (`generate.py`) — temperature sampling, with logic to suppress `[UNK]` generation for readable output.
 
 ## 🚀 Getting Started
 
 ### 1. Installation
 
-Clone the repository and install the required dependencies. *Note: Strict adherence to TF 2.12 is required for compatibility with the CUDA 11.8 setup.*
+*Note: TF 2.12 is required for compatibility with the CUDA 11.8 setup.*
 
 ```bash
-git clone [https://github.com/YourUsername/MM1.git](https://github.com/YourUsername/MM1.git)
-cd MM1
+git clone https://github.com/maxndre/LLM-with-TensorFlow-for-small-GPU.git
+cd LLM-with-TensorFlow-for-small-GPU
 pip install -r requirements.txt
 ```
 
-### 2. Project Structure
-Ensure you have your raw text files and vocabulary set up correctly before training:
+### 2. Project structure
 
-`data_txt/`: Place your raw `.txt` Wikipedia chunks here.
+`data_txt/`: raw `.txt` Wikipedia chunks.
+`VOCAB/`: the compiled `vocab.txt`.
 
-`VOCAB/`: Place your compiled `vocab.txt` here.
+### 3. Training
 
-### 3. Training the Model
-Launch the training script. You can customize hyperparameters directly via command-line arguments:
-
-``` Bash
+```bash
 python3 train.py --epochs 10 --batch_size 16 --learning_rate 1e-4
 ```
 
-To force the creation of a brand new model instead of loading the latest checkpoint, append the ```--creer_model``` flag.
+Append `--creer_model` to force a fresh model instead of loading the latest checkpoint.
 
-### 4. Text Generation (Inference)
-Once the model has trained and saved its weights to the CHECKPOINTS_MM1 directory, you can generate text. The inference script includes logic to artificially suppress the generation of `[UNK]` tokens for readable output.
+### 4. Text generation
 
-```Bash
-python3 generate.py --prompt "La capitale de la France est" --length 50 --temperature 0.8 
+```bash
+python3 generate.py --prompt "La capitale de la France est" --length 50 --temperature 0.8
 ```
 
-Built with passion, TensorFlow 2.12, and Keras-NLP.
+---
 
-
+Built with TensorFlow 2.12, Keras-NLP, and a laptop that got very warm.
