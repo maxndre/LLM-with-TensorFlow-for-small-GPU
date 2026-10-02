@@ -18,7 +18,7 @@ The VRAM ceiling forces a single budget to be split four ways — vocabulary siz
 
 * **Context window.** `maxlen` is capped at **128 tokens**. Attention cost grows with the square of the sequence length, so the context window is the most expensive axis to buy and the first one cut.
 * **Vocabulary arbitrage.** The vocabulary is capped at **~3000 tokens** to keep the embedding and output projection small enough to fit. French is a heavily inflected language, so a small vocabulary produces a high rate of unknown (`[UNK]`) tokens — the cost of that choice, paid in data quality.
-* **Countermeasure.** A **dynamic filtering algorithm** in the data pipeline rejects training sequences containing an excessive proportion of `[UNK]`, so the model still learns from readable text rather than from noise.
+* **Countermeasure.** A **filter** in the data pipeline rejects any training window with more than 10 `[UNK]` tokens, or with one among its last 10, so the model still learns from readable text rather than from noise.
 * **Dataset:** French Wikipedia.
 
 ## 🏗️ Model Architecture
@@ -34,7 +34,7 @@ The VRAM ceiling forces a single budget to be split four ways — vocabulary siz
 
 ## ✨ What is actually implemented here
 
-* **Transformer block wiring** (`model.py`) — residual connections around both sub-layers, post-norm placement, dropout before the add. Built on `layers.MultiHeadAttention` and `layers.LayerNormalization`; the block structure around them is written by hand.
+* **Transformer block** (`model.py`) — adapted from the [Keras miniature GPT example](https://keras.io/examples/generative/text_generation_with_miniature_gpt/): residual connections around both sub-layers, post-norm placement, dropout before the add, on top of `layers.MultiHeadAttention` and `layers.LayerNormalization`.
 * **Strict causal masking** — a dynamic lower-triangular mask via `tf.linalg.band_part`, reshaped and passed into every block, so the model cannot attend to future tokens.
 * **Data pipeline** — sequence cleaning, the `[UNK]` filtering described above, shuffling and `prefetch(AUTOTUNE)`.
 * **Resilient training loop** — CSV logging and checkpointing; training resumes at the exact epoch and learning rate it stopped at, which matters when a run takes days on this hardware.
